@@ -6,6 +6,6 @@ reproduce the experiments in our CVPR2022 paper [Maximum Spatial Perturbation Co
 
 | Purturbation Consistency | Spatial Alignment |
 :-------------------------:|:-------------------------:
-![](figure/T_pert.png)  |  ![](figure/T_align.png)
+![0.5](figure/T_pert.png)  |  ![0.5](figure/T_align.png)
 
 ## Face Pose Transfer data can be downloaded [here](https://drive.google.com/file/d/1AUoRl0_suTIunTTJ5jor8poUmkoKfxMb/view?usp=sharing)
