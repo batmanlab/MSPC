@@ -9,3 +9,7 @@ reproduce the experiments in our CVPR2022 paper [Maximum Spatial Perturbation Co
 ![0.5](figure/T_pert.png)  |  ![0.5](figure/T_align.png)
 
 ## Face Pose Transfer data can be downloaded [here](https://drive.google.com/file/d/1AUoRl0_suTIunTTJ5jor8poUmkoKfxMb/view?usp=sharing)
+
+## Experiments on real data
+
+To run the code on the face pose transfer data. 1. download the data from above link 2. unzip the data to the data folder 3. sh run_gcpert.sh
