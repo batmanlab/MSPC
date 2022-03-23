@@ -1,0 +1,29 @@
+#! /bin/bash
+
+source /ocean/projects/asc170022p/yanwuxu/miniconda/etc/profile.d/conda.sh
+conda activate cyclegan
+
+pert_threshold=3.0
+lambda_blank=20.0
+identity=3.1
+direction='BtoA'
+
+dataroot='../data/cityscapes'
+batch_size=4
+load_size=144
+crop_size=128
+model=maxgcpert3_gan
+bounded=unbounded
+netG=resnet_6blocks
+netD=basic
+
+python train.py --dataroot $dataroot --model $model --load_mem --gan_mode vanilla \
+--bounded $bounded --grid_size 2 --pert_threshold $pert_threshold --lambda_blank $lambda_blank \
+--pool_size 50 --no_dropout --load_size $load_size --crop_size $crop_size \
+--netG $netG --netD $netD --batch_size $batch_size --identity $identity \
+--direction $direction;
+#python test.py --dataroot $dataroot --model $model --eval \
+#--bounded $bounded --grid_size 2 --pert_threshold $pert_threshold --lambda_blank $lambda_blank \
+#--no_dropout --load_size $load_size --crop_size $crop_size \
+#--netG $netG --netD $netD --batch_size $batch_size --identity $identity \
+#--direction $direction
