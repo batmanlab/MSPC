@@ -2,7 +2,7 @@
 
 This repository is by [Yanwu Xu](http://xuyanwu.github.io)
 and contains the [PyTorch](https://pytorch.org) source code to
-reproduce the experiments in our CVPR2022 paper [Maximum Spatial Perturbation Consistency for Unpaired Image-to-Image Translation](https://arxiv.org/pdf/2203.12707.pdf) by [Yanwu Xu](http://xuyanwu.github.io), Shaoan Xie, Wenhao Wu, Kun Zhang, Mingming Gong* and Kayhan Batmanghelich* (* Equal Advising)
+reproduce the experiments in our CVPR2022 paper [Maximum Spatial Perturbation Consistency for Unpaired Image-to-Image Translation](https://arxiv.org/pdf/2203.12707.pdf) by [Yanwu Xu](http://xuyanwu.github.io), Shaoan Xie, Wenhao Wu, Kun Zhang, Mingming Gong* and Kayhan Batmanghelich* (* Equal Contribution)
 
 | Purturbation Consistency | Spatial Alignment |
 :-------------------------:|:-------------------------:
