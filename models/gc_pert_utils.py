@@ -221,7 +221,7 @@ class BoundedGridLocNet(nn.Module):
         batch_size = x.size(0)
         points = F.tanh(self.cnn(x))
         points = points.view(batch_size, -1, 2)
-        points = self.reverse(points)
+        # points = self.reverse(points)
         return points
 
 class UnBoundedGridLocNet(nn.Module):
@@ -240,6 +240,6 @@ class UnBoundedGridLocNet(nn.Module):
         batch_size = x.size(0)
         points = self.cnn(x)
         points = points.view(batch_size, -1, 2)
-        points = self.reverse(points)
+        # points = self.reverse(points)
         return points
 

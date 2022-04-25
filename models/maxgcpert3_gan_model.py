@@ -7,10 +7,28 @@ import torch.distributed as dist
 from .gc_pert_utils import BoundedGridLocNet, UnBoundedGridLocNet, TPSGridGen, grid_sample
 import itertools
 import torch.nn.functional as F
-from util.image_pool import ImagePool
+from .networks import spectral_init
 # from torch.nn.parallel import DistributedDataParallel as DDP
 import torch.nn as nn
+from util.image_pool import ImagePool
 from torch.autograd import grad
+def sigmoid(x):
+    z = 1 / (1 + np.exp(-x))
+    return z
+
+def add_sn(m):
+    if isinstance(m, (nn.Conv2d, nn.ConvTranspose2d)):
+        return spectral_init(m)
+    else:
+        return m
+
+def update_average(model_tgt, model_src, beta=0.999):
+    param_dict_src = dict(model_src.named_parameters())
+
+    for p_name, p_tgt in model_tgt.named_parameters():
+        p_src = param_dict_src[p_name]
+        assert p_src is not p_tgt
+        p_tgt.data.mul_(beta).add_((1 - beta) * p_src.data)
 
 def average_gradients(model):
     size = float(dist.get_world_size())
@@ -24,16 +42,16 @@ def on_after_backward(self) -> None:
         if param.grad is not None:
             valid_gradients = not (torch.isnan(param.grad).any() or torch.isinf(param.grad).any())
             if not valid_gradients:
-                print(self)
-                break
+                param.grad.data = torch.nan_to_num(param.grad.data,nan=0.0, posinf=1.0, neginf=-1.0)
+                print(param.grad.data.sum())
+                valid_gradients = not (torch.isnan(param.grad).any() or torch.isinf(param.grad).any())
+                if not valid_gradients:
+                    break
 
     if not valid_gradients:
         print(f'detected inf or nan values in gradients. not updating model parameters')
         self.zero_grad()
 
-def sigmoid(x):
-    z = 1 / (1 + np.exp(-x))
-    return z
 
 class Maxgcpert3GANModel(BaseModel):
     """ This class implements CUT and FastCUT model, described in the paper
@@ -65,7 +83,7 @@ class Maxgcpert3GANModel(BaseModel):
         parser.add_argument('--lambda_blank', type=float, default=1.0)
         parser.add_argument('--grid_size', type=int, default=2)
         parser.add_argument('--pert_threshold', type=float, default=0.1)
-        parser.set_defaults(pool_size=0)
+        parser.set_defaults(pool_size=0)  # no image pooling
 
         opt, _ = parser.parse_known_args()
 
@@ -78,19 +96,16 @@ class Maxgcpert3GANModel(BaseModel):
         # The training/test scripts will call <BaseModel.get_current_losses>
         self.opt = opt
 
-        self.name = opt.name + '_' + str(opt.grid_size) + '_' + str(opt.pert_threshold) + '_' + str(
-            opt.lambda_blank) + '_' + opt.bounded + '_' + str(opt.identity)
+        self.name = opt.name + '_'+str(opt.grid_size)+ '_'+str(opt.pert_threshold) + '_' + str(opt.lambda_blank)+ '_' + opt.bounded+ '_' + str(opt.identity)
         self.loss_names = ['D_real', 'D_fake']
         self.visual_names = ['real_A', 'fake_B', 'real_B']
 
         if opt.idt and self.isTrain:
-            self.loss_names += ['D_real_perturbation', 'D_fake_perturbation', 'max_pert', 'pert_constraint_D', 'idt',
-                                'idt_perturbation']
-            self.visual_names += ['fake_B_perturbation', 'fake_B_grid', 'idt_B', 'pert_B', 'idt_B_perturbation',
-                                  'pert_A']
+            self.loss_names += ['D_real_perturbation', 'D_fake_perturbation', 'max_pert', 'pert_constraint_D', 'idt', 'idt_perturbation']
+            self.visual_names += ['fake_B_perturbation', 'fake_B_grid', 'idt_B', 'pert_B', 'idt_B_perturbation', 'pert_A']
 
         if self.isTrain:
-            self.model_names = ['G', 'D', 'D_perturbation', 'LOC', 'TPS']
+            self.model_names = ['G', 'D', 'D_perturbation', 'LOC', 'LOC_T', 'TPS']
         else:  # during test time, only load G
             self.model_names = ['G']
 
@@ -98,8 +113,8 @@ class Maxgcpert3GANModel(BaseModel):
         self.netG = networks.define_G(opt.input_nc, opt.output_nc, opt.ngf, opt.netG, opt.norm,
                                         not opt.no_dropout, opt.init_type, opt.init_gain, self.gpu_ids)
 
-        if self.isTrain:
 
+        if True:
             self.fake_pool = ImagePool(opt.pool_size)
             self.fake_pert_pool = ImagePool(opt.pool_size)
 
@@ -109,33 +124,40 @@ class Maxgcpert3GANModel(BaseModel):
             target_control_points = torch.Tensor(list(itertools.product(
                 np.arange(-r1, r1 + 0.00001, 2.0 * r1 / (self.opt.grid_size - 1)),
                 np.arange(-r2, r2 + 0.00001, 2.0 * r2 / (self.opt.grid_size - 1)),
-            )))
+            ))).cuda()
             Y, X = target_control_points.split(1, dim=1)
-            self.target_control_point = torch.cat([X, Y], dim=1).cuda()
+            self.target_control_point = torch.cat([X, Y], dim=1)
 
 
             GridLocNet = {
                 'unbounded': UnBoundedGridLocNet,
                 'bounded': BoundedGridLocNet,
             }[self.opt.bounded]
-            # rotated_point = torch.mm(self.target_control_point, torch.tensor([[0, 1.0], [-1.0, 0]]).t().cuda().float())
+
+            rotated_point = torch.mm(self.target_control_point,torch.tensor([[0,1],[-1,0]]).t().cuda().float())
             self.netLOC = GridLocNet(self.opt.grid_size, self.opt.grid_size, self.target_control_point)
+            self.netLOC_T = GridLocNet(self.opt.grid_size, self.opt.grid_size, self.target_control_point)
+            update_average(self.netLOC_T, self.netLOC, 0)
+
+            # self.netLOC.apply(add_sn)
+
             self.netTPS = TPSGridGen()
 
             self.netD = networks.define_D(opt.output_nc, opt.ndf, opt.netD,
                                             opt.n_layers_D, opt.norm, opt.init_type, opt.init_gain, self.gpu_ids)
             self.netD_perturbation = networks.define_D(opt.output_nc, opt.ndf, opt.netD,
                                             opt.n_layers_D, opt.norm, opt.init_type, opt.init_gain, self.gpu_ids)
-
+            self.netD_perturbation.apply(add_sn)
             # define loss functions
             self.criterionGAN = networks.GANLoss(opt.gan_mode).to(self.device)
             self.criterionIdt = torch.nn.L1Loss().to(self.device)
+            self.criterionIdt_pert = torch.nn.L1Loss(reduce=False).to(self.device)
 
             self.optimizer_G = torch.optim.Adam(self.netG.parameters(), lr=opt.lr, betas=(opt.beta1, 0.999))
-            self.optimizer_Pert = torch.optim.Adam(itertools.chain(self.netLOC.parameters(), self.netTPS.parameters()), lr=opt.lr, betas=(opt.beta1, 0.999))
-            self.optimizer_D = torch.optim.Adam(itertools.chain(self.netD.parameters(), self.netD_perturbation.parameters()), lr=opt.lr, betas=(opt.beta1, 0.999))
+            self.optimizer_Pert = torch.optim.Adam(self.netLOC.parameters(), lr=opt.lr, betas=(opt.beta1, 0.999))
+            self.optimizer_D = torch.optim.Adam(self.netD.parameters(), lr=opt.lr, betas=(opt.beta1, 0.999))
+            self.optimizer_D_perturbation = torch.optim.Adam(self.netD_perturbation.parameters(), lr=opt.lr, betas=(opt.beta1, 0.999))
             self.optimizers.append(self.optimizer_G)
-            self.optimizers.append(self.optimizer_Pert)
             self.optimizers.append(self.optimizer_D)
 
     def data_dependent_initialize(self, data):
@@ -152,39 +174,40 @@ class Maxgcpert3GANModel(BaseModel):
 
     def optimize_parameters(self):
         # forward
-        self.wd = 1.0
         self.set_requires_grad(self.netD, True)
         self.set_requires_grad(self.netD_perturbation, True)
-        self.set_requires_grad(self.netLOC, True)
-        self.set_requires_grad(self.netTPS, True)
+        self.set_requires_grad(self.netG, True)
+        self.set_requires_grad(self.netLOC, False)
         self.forward()
         self.forward_perturbation()
-
-        self.set_requires_grad(self.netG, False)
-        self.fake_B_perturbation = self.netG(self.pert_A)
-        self.fake_B_grid = grid_sample(self.fake_B.detach(), self.grid_A)
         # update D
         self.optimizer_D.zero_grad()
-        self.optimizer_Pert.zero_grad()
-        self.loss_D, self.loss_pert_D = self.compute_D_loss()
-        (self.loss_D + self.loss_pert_D-self.loss_pert_constraint_D*self.opt.lambda_blank).backward()
+        self.optimizer_D_perturbation.zero_grad()
+        self.loss_D = self.compute_D_loss()
+        self.loss_D.backward()
+
         self.optimizer_D.step()
-        self.optimizer_Pert.step()
+        self.optimizer_D_perturbation.step()
 
         # update G
         self.set_requires_grad(self.netD, False)
         self.set_requires_grad(self.netD_perturbation, False)
-        self.set_requires_grad(self.netLOC, False)
-        self.set_requires_grad(self.netTPS, False)
-        self.set_requires_grad(self.netG, True)
-
-        self.fake_B_perturbation = self.netG(self.pert_A.detach())
-        self.fake_B_grid = grid_sample(self.fake_B, self.grid_A.detach())
         self.optimizer_G.zero_grad()
         self.loss_G = self.compute_G_loss()
         self.loss_G.backward()
-        on_after_backward(self.netG)
         self.optimizer_G.step()
+
+        # update LOC
+        self.set_requires_grad(self.netLOC, True)
+        self.set_requires_grad(self.netG, False)
+
+        self.optimizer_Pert.zero_grad()
+        self.forward_perturbation_Loc()
+        self.loss_D_Loc, self.loss_pert_D, self.loss_pert_constraint_D = self.compute_Loc_loss()
+        (self.loss_D_Loc + self.loss_pert_D + self.loss_pert_constraint_D*self.opt.lambda_blank).backward()
+        self.optimizer_Pert.step()
+
+        update_average(self.netLOC_T, self.netLOC, (self.epoch/(self.opt.n_epochs + self.opt.n_epochs_decay)))
 
     def set_input(self, input):
         """Unpack input data from the dataloader and perform necessary pre-processing steps.
@@ -212,7 +235,7 @@ class Maxgcpert3GANModel(BaseModel):
 
     def compute_D_loss(self):
         """Calculate GAN loss for the discriminator"""
-        fake = self.fake_B.detach()#self.fake_pool.query(self.fake_B.detach())
+        fake = self.fake_B.detach()#elf.fake_pool.query(self.fake_B.detach())
         # Fake; stop backprop to the generator by detaching fake_B
         pred_fake = self.netD(fake)
         self.loss_D_fake = self.criterionGAN(pred_fake, False).mean()
@@ -221,18 +244,35 @@ class Maxgcpert3GANModel(BaseModel):
         self.loss_D_real = self.criterionGAN(self.pred_real, True).mean()
 
         # Fake; stop backprop to the generator by detaching fake_B
-        pred_fake_perturbation = self.netD_perturbation(self.fake_B_perturbation)
+        fake_B_perturbation = self.fake_B_perturbation.detach()#self.fake_pert_pool.query(self.fake_B_perturbation.detach())#
+        pred_fake_perturbation = self.netD_perturbation(fake_B_perturbation)
         self.loss_D_fake_perturbation = self.criterionGAN(pred_fake_perturbation, False).mean()
         # Real
-        self.pred_real_perturbation = self.netD_perturbation(self.pert_B)
+        self.pred_real_perturbation = self.netD_perturbation(self.pert_B.detach())
         self.loss_D_real_perturbation = self.criterionGAN(self.pred_real_perturbation, True).mean()
 
-        self.loss_max_pert_D = self.criterionIdt(self.fake_B_perturbation, self.fake_B_grid)
-        # combine loss and calculate gradients
-        self.loss_D = (self.loss_D_fake + self.loss_D_real + self.loss_D_fake_perturbation + self.loss_D_real_perturbation) * 0.5
-        self.loss_pert_D = self.opt.identity * self.opt.lambda_AB * self.loss_max_pert_D*self.wd*0.5
+        self.loss_D = (self.loss_D_fake + self.loss_D_real + self.loss_D_fake_perturbation + self.loss_D_real_perturbation)*0.5
 
-        return self.loss_D, self.loss_pert_D
+        return self.loss_D
+
+    def compute_Loc_loss(self):
+        """Calculate GAN loss for the discriminator"""
+        # Fake; stop backprop to the generator by detaching fake_B
+        pred_fake_perturbation = self.netD_perturbation(self.fake_B_perturbation)
+        self.loss_D_fake_perturbation = self.criterionGAN(pred_fake_perturbation, True).mean()
+        # Real
+        self.pred_real_perturbation = self.netD_perturbation(self.pert_B)
+        self.loss_D_real_perturbation = self.criterionGAN(self.pred_real_perturbation, False).mean()
+
+        self.loss_max_pert_D = -(self.criterionIdt(self.fake_B_grid, self.fake_B_perturbation)
+                                 + self.criterionIdt(self.idt_B_perturbation, self.pert_B))*0.5
+
+        # combine loss and calculate gradients
+        self.loss_D_Loc = (self.loss_D_fake_perturbation + self.loss_D_real_perturbation)
+        self.loss_pert_D = self.opt.lambda_AB * self.loss_max_pert_D
+        self.loss_pert_constraint_D = (self.constraint_A + self.cordinate_contraint_A + self.constraint_B + self.cordinate_contraint_B)*0.5
+
+        return self.loss_D_Loc , self.loss_pert_D , self.loss_pert_constraint_D
 
     def compute_G_loss(self):
         """Calculate GAN and NCE loss for the generator"""
@@ -253,10 +293,46 @@ class Maxgcpert3GANModel(BaseModel):
             self.loss_idt_perturbation = self.criterionIdt(self.idt_B_perturbation, self.pert_B.detach())
 
 
-        loss_G = (self.loss_G_GAN + self.opt.identity*self.opt.lambda_AB*self.loss_idt)
+        loss_G = (self.loss_G_GAN + self.opt.identity*self.opt.lambda_AB*self.loss_idt)*0.5
         loss_G_perturbation = (self.loss_G_GAN_perturbation +
-                               self.opt.identity*self.opt.lambda_AB*(self.loss_idt_perturbation + self.loss_max_pert*self.wd))
+                               self.opt.identity*self.opt.lambda_AB*(self.loss_idt_perturbation + self.loss_max_pert))*0.5
         return loss_G + loss_G_perturbation
+
+    def forward_perturbation(self,):
+
+        batch_size = self.real_A.size(0)
+
+        self.target_control_points = torch.cat([self.target_control_point.unsqueeze(dim=0)] * batch_size,
+                                               dim=0)
+
+        ############pertA
+        downsample_A = F.interpolate(self.real_A,(64,64),mode='bilinear', align_corners=True)
+
+        source_control_points = self.netLOC_T(downsample_A)
+
+        source_coordinate = self.netTPS(source_control_points, self.target_control_points, self.opt.crop_size,
+                                     self.opt.crop_size)
+        self.grid_A = source_coordinate.view(batch_size, self.opt.crop_size, self.opt.crop_size, 2)
+        self.pert_A = grid_sample(self.real_A, self.grid_A, mode='bilinear')
+
+        # self.fake_B_perturbation = self.netG(self.pert_A)
+        self.fake_B_grid = grid_sample(self.fake_B, self.grid_A)
+
+        #############pert B
+        self.target_control_points = torch.cat([self.target_control_point.unsqueeze(dim=0)] * batch_size,
+                                               dim=0)
+        downsample_B = F.interpolate(self.real_B, (64, 64), mode='bilinear', align_corners=True)
+
+        source_control_points_B = self.netLOC_T(downsample_B)
+
+        source_coordinate_B = self.netTPS(source_control_points_B, self.target_control_points, self.opt.crop_size,
+                                        self.opt.crop_size)
+        self.grid_B = source_coordinate_B.view(batch_size, self.opt.crop_size, self.opt.crop_size, 2)
+        self.pert_B = grid_sample(self.real_B, self.grid_B, mode='bilinear')
+        # self.idt_B_perturbation = self.netG(self.pert_B.detach())
+
+        fake = self.netG(torch.cat([self.pert_A, self.pert_B.detach()], dim=0))
+        self.fake_B_perturbation, self.idt_B_perturbation = torch.chunk(fake, 2, dim=0)
 
     def scale_constraint(self, source_control_points, target_control_points):
         constraint_index = np.random.choice(source_control_points.shape[1], 3, replace=False)
@@ -287,7 +363,7 @@ class Maxgcpert3GANModel(BaseModel):
 
         return constraint
 
-    def forward_perturbation(self,):
+    def forward_perturbation_Loc(self,):
 
         batch_size = self.real_A.size(0)
 
@@ -297,26 +373,31 @@ class Maxgcpert3GANModel(BaseModel):
         ############pertA
         downsample_A = F.interpolate(self.real_A,(64,64),mode='bilinear', align_corners=True)
         source_control_points = self.netLOC(downsample_A)
+
         source_coordinate = self.netTPS(source_control_points, self.target_control_points, self.opt.crop_size,
                                      self.opt.crop_size)
         self.grid_A = source_coordinate.view(batch_size, self.opt.crop_size, self.opt.crop_size, 2)
-
-        self.pert_A = grid_sample(self.real_A, self.grid_A)
+        self.pert_A = grid_sample(self.real_A, self.grid_A, mode='bilinear')
+        # self.fake_B_perturbation = self.netG(self.pert_A)
+        self.fake_B_grid = grid_sample(self.fake_B.detach(), self.grid_A)
 
         self.constraint_A = self.scale_constraint(source_control_points, self.target_control_points)
         self.cordinate_contraint_A = ((source_coordinate.mean(dim=1).abs()).clamp(min=0.25)).mean()
 
         #############pert B
+        self.target_control_points = torch.cat([self.target_control_point.unsqueeze(dim=0)] * batch_size,
+                                               dim=0)
         downsample_B = F.interpolate(self.real_B, (64, 64), mode='bilinear', align_corners=True)
         source_control_points_B = self.netLOC(downsample_B)
-        # print(source_control_points[0,:], source_control_points[1,:])
+
         source_coordinate_B = self.netTPS(source_control_points_B, self.target_control_points, self.opt.crop_size,
                                         self.opt.crop_size)
         self.grid_B = source_coordinate_B.view(batch_size, self.opt.crop_size, self.opt.crop_size, 2)
-        self.pert_B = grid_sample(self.real_B, self.grid_B)
-        self.idt_B_perturbation = self.netG(self.pert_B.detach())
+        self.pert_B = grid_sample(self.real_B, self.grid_B, mode='bilinear')
+        # self.idt_B_perturbation = self.netG(self.pert_B)
 
         self.constraint_B = self.scale_constraint(source_control_points_B, self.target_control_points)
         self.cordinate_contraint_B = ((source_coordinate_B.mean(dim=1).abs()).clamp(min=0.25)).mean()
 
-        self.loss_pert_constraint_D = (self.constraint_A + self.cordinate_contraint_A + self.constraint_B + self.cordinate_contraint_B)*0.5
+        fake = self.netG(torch.cat([self.pert_A,self.pert_B],dim=0))
+        self.fake_B_perturbation, self.idt_B_perturbation = torch.chunk(fake,2,dim=0)
