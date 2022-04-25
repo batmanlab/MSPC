@@ -35,7 +35,7 @@ def sigmoid(x):
     z = 1 / (1 + np.exp(-x))
     return z
 
-class Maxgcpert4GANModel(BaseModel):
+class Maxgcpert3GANModel(BaseModel):
     """ This class implements CUT and FastCUT model, described in the paper
     Contrastive Learning for Unpaired Image-to-Image Translation
     Taesung Park, Alexei A. Efros, Richard Zhang, Jun-Yan Zhu
