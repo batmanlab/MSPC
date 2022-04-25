@@ -5,10 +5,10 @@ conda activate cyclegan
 
 pert_threshold=3.0
 lambda_blank=20.0
-identity=3.1
-direction='BtoA'
+identity=3.0
+direction='AtoB'
 
-dataroot='../data/cityscapes'
+dataroot='./data/selfie2anime'
 batch_size=4
 load_size=144
 crop_size=128
