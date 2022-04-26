@@ -3,9 +3,9 @@
 source /ocean/projects/asc170022p/yanwuxu/miniconda/etc/profile.d/conda.sh
 conda activate cyclegan
 
-pert_threshold=2.0 ###scale of perturbation 
+pert_threshold=1.5 ###scale of perturbation 
 lambda_blank=20.0  ###constraint coefficient of perturbation
-identity=3.0
+identity=20.0
 direction='AtoB'
 
 dataroot='./data/selfie2anime'
