@@ -4,7 +4,7 @@ source /ocean/projects/asc170022p/yanwuxu/miniconda/etc/profile.d/conda.sh
 conda activate cyclegan
 
 pert_threshold=2.0 ###scale of perturbation 
-lambda_blank=20.0  ###constraint coefficient of perturbation
+lambda_blank=50.0  ###constraint coefficient of perturbation
 identity=20.0
 direction='AtoB'
 
