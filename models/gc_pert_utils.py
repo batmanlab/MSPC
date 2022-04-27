@@ -177,23 +177,24 @@ def grid_sample(input, grid, canvas = None, mode='bilinear'):
 class CNN(nn.Module):
     def __init__(self, num_output,in_c=3):
         super(CNN, self).__init__()
-        self.net = resnet18(pretrained=False, num_classes=320, norm_layer=nn.InstanceNorm2d)
-        #     nn.Sequential(
-        #     nn.Conv2d(in_c, 64, kernel_size=5),
-        #     nn.InstanceNorm2d(64),
-        #     nn.MaxPool2d(2),
-        #     nn.ReLU(),
-        #     nn.Conv2d(64, 256, kernel_size=5),
-        #     nn.InstanceNorm2d(256),
-        #     nn.Dropout2d(),
-        #     nn.MaxPool2d(2),
-        #     nn.ReLU(),
-        #     nn.Conv2d(256, 20, kernel_size=5),
-        #     nn.InstanceNorm2d(20),
-        #     nn.Dropout2d(),
-        #     nn.MaxPool2d(2),
-        #     nn.ReLU()
-        # )
+        self.net = \
+            nn.Sequential(
+            nn.Conv2d(in_c, 64, kernel_size=5),
+            nn.InstanceNorm2d(64),
+            nn.MaxPool2d(2),
+            nn.ReLU(),
+            nn.Conv2d(64, 256, kernel_size=5),
+            nn.InstanceNorm2d(256),
+            nn.Dropout2d(),
+            nn.MaxPool2d(2),
+            nn.ReLU(),
+            nn.Conv2d(256, 20, kernel_size=5),
+            nn.InstanceNorm2d(20),
+            nn.Dropout2d(),
+            nn.MaxPool2d(2),
+            nn.ReLU()
+        )
+        # resnet18(pretrained=False, num_classes=320, norm_layer=nn.InstanceNorm2d)
         self.fc1 = nn.Linear(320, 50)
         self.fc2 = nn.Linear(50, num_output)
 
@@ -242,4 +243,3 @@ class UnBoundedGridLocNet(nn.Module):
         points = points.view(batch_size, -1, 2)
         points = self.reverse(points)
         return points
-
