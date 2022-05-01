@@ -5,7 +5,7 @@ conda activate cyclegan
 
 pert_threshold=2.0 ###scale of perturbation 
 lambda_blank=50.0  ###constraint coefficient of perturbation
-identity=20.0
+identity=10.0
 direction='AtoB'
 
 dataroot='./data/selfie2anime'
