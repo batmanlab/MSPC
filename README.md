@@ -15,3 +15,6 @@ reproduce the experiments in our CVPR2022 paper [Maximum Spatial Perturbation Co
 To run the code on the face pose transfer data. 1. download the data from above link 2. unzip the data to the ./data folder 3. sh run_gcpert.sh
 
 ## Qualitative Results
+| Comparison |
+:-------------------------:|
+![1.0](figure/qualitative.pdf)  |
