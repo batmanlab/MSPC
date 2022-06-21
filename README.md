@@ -18,3 +18,8 @@ To run the code on the face pose transfer data. 1. download the data from above 
 | Comparison |
 :-------------------------:|
 ![1.0](figure/qualitative.png)  |
+
+## Dynamic of Spatial Transformer T
+| Comparison |
+:-------------------------:|
+![1.0](figure/face_epoch.png)  |
