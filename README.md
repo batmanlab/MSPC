@@ -17,4 +17,4 @@ To run the code on the face pose transfer data. 1. download the data from above 
 ## Qualitative Results
 | Comparison |
 :-------------------------:|
-![1.0](figure/qualitative.pdf)  |
+![1.0](figure/qualitative.png)  |
