@@ -17,7 +17,7 @@ bounded=unbounded
 netG=resnet_6blocks
 netD=basic
 
-python train.py --dataroot $dataroot --model $model --load_mem --gan_mode vanilla \
+python train.py --dataroot $dataroot --model $model --gan_mode lsgan \
 --bounded $bounded --grid_size 2 --pert_threshold $pert_threshold --lambda_blank $lambda_blank \
 --pool_size 50 --no_dropout --load_size $load_size --crop_size $crop_size \
 --netG $netG --netD $netD --batch_size $batch_size --identity $identity \
